@@ -154,12 +154,19 @@ class IDMLParser:
                                 content_nodes = csr.findall("Content")
                                 text = "".join((n.text or "") for n in content_nodes)
                                 if text.strip():
+                                    # Extract font family name
+                                    font_nodes = csr.findall(".//Properties/AppliedFont")
+                                    font_family = font_nodes[0].text.strip() if font_nodes else csr.get("AppliedFont", "")
+                                    # Normalize: keep only family name, drop style suffix
+                                    import re as _re
+                                    font_family = _re.sub(r"\s+(Bold|Italic|Regular|Light|Medium|Black|Thin|Semibold|Condensed|Extra.*|Ultra.*).*$", "", font_family, flags=_re.IGNORECASE).strip()
                                     para["runs"].append({
                                         "text": text,
                                         "size": pt_to_px(size) if size else 12,
                                         "color": self.colors.get(fill, "#000000"),
                                         "bold": "Bold" in font_style,
                                         "italic": "Italic" in font_style,
+                                        "fontFamily": font_family,
                                     })
                             if para["runs"]:
                                 paragraphs.append(para)
