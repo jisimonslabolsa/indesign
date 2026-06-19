@@ -168,6 +168,24 @@ header p{color:var(--muted);margin-top:6px;font-size:13px}
     <div style="font-size:11px;color:var(--muted);margin-top:8px" id="font-map-info"></div>
   </div>
 
+
+  <!-- Image upload section -->
+  <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+    <div class="card-title" style="margin-bottom:12px">Imágenes <span style="color:var(--muted);font-weight:400;text-transform:none">(marcos sin imagen enlazada)</span></div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Sube las imágenes y asígnalas a cada marco arrastrando o seleccionando.</div>
+    <div id="img-upload-area" style="border:1.5px dashed var(--border);border-radius:8px;padding:14px 16px;cursor:pointer;transition:all .2s;position:relative">
+      <input type="file" id="img-input" accept="image/*" multiple style="position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:20px">🖼️</span>
+        <div>
+          <div style="font-size:13px">Arrastra imágenes aquí (.jpg, .png, .webp)</div>
+          <div style="font-size:11px;color:var(--muted)">Puedes subir múltiples imágenes</div>
+        </div>
+      </div>
+    </div>
+    <div id="img-assignment-list" style="margin-top:10px;display:flex;flex-direction:column;gap:6px"></div>
+  </div>
+
   <br>
   <div style="display:flex;gap:10px">
     <button class="btn btn-secondary" onclick="goStep(1)">← Atrás</button>
@@ -350,6 +368,7 @@ function initEditor() {
   });
 
   renderList();
+  renderImageAssignments();
 }
 
 function autoName(el, i) {
@@ -498,6 +517,7 @@ document.getElementById('generate-btn').addEventListener('click', async () => {
         sizes: sizes.join(','),
         click_url: clickUrl,
         fonts: uploadedFonts.map(f => ({ family: f.family, filename: f.filename })),
+        image_assignments: imageAssignments,
       }),
     });
     const data = await res.json();
@@ -630,6 +650,86 @@ function renderFontList() {
 function removeFont(i) {
   uploadedFonts.splice(i, 1);
   renderFontList();
+}
+
+
+// ── Image upload & assignment ─────────────────────────────
+let uploadedImages = []; // [{name, filename, url}]
+let imageAssignments = {}; // { elIndex: filename }
+
+const imgInput = document.getElementById('img-input');
+const imgUploadArea = document.getElementById('img-upload-area');
+
+imgInput.addEventListener('change', () => {
+  [...imgInput.files].forEach(uploadImage);
+});
+imgUploadArea.addEventListener('dragover', e => { e.preventDefault(); imgUploadArea.style.borderColor='var(--accent)'; });
+imgUploadArea.addEventListener('dragleave', () => { imgUploadArea.style.borderColor=''; });
+imgUploadArea.addEventListener('drop', e => {
+  e.preventDefault(); imgUploadArea.style.borderColor='';
+  [...e.dataTransfer.files].filter(f => f.type.startsWith('image/')).forEach(uploadImage);
+});
+
+async function uploadImage(file) {
+  const fd = new FormData();
+  fd.append('image', file);
+  try {
+    const res = await fetch('/upload-image', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    uploadedImages.push({ name: file.name, filename: data.filename, url: data.url });
+    renderImageAssignments();
+  } catch(e) {
+    console.error('Image upload error:', e);
+  }
+}
+
+function renderImageAssignments() {
+  if (!layoutData) return;
+  const list = document.getElementById('img-assignment-list');
+  
+  // Find image-type elements (rectangles used as image frames = no backgroundColor or transparent)
+  const imageFrames = layoutData.elements
+    .map((el, i) => ({el, i}))
+    .filter(({el}) => el.type === 'image' || (el.type === 'rectangle' && !el.backgroundColor));
+
+  if (imageFrames.length === 0 || uploadedImages.length === 0) {
+    list.innerHTML = '';
+    return;
+  }
+
+  list.innerHTML = imageFrames.map(({el, i}) => {
+    const assigned = imageAssignments[i];
+    const assignedImg = uploadedImages.find(u => u.filename === assigned);
+    const size = `${el.width.toFixed(0)}×${el.height.toFixed(0)}px`;
+    
+    const options = uploadedImages.map(img =>
+      `<option value="${img.filename}" ${assigned === img.filename ? 'selected' : ''}>${img.name}</option>`
+    ).join('');
+
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;background:var(--surface2);border:1px solid var(--border)">
+        ${assignedImg
+          ? `<img src="/preview-image/${assignedImg.filename}" style="width:40px;height:40px;object-fit:cover;border-radius:4px;border:1px solid var(--border)">`
+          : `<div style="width:40px;height:40px;border-radius:4px;border:1.5px dashed var(--border);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:18px">🖼️</div>`
+        }
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;color:var(--muted2)">Marco ${i} · ${size}</div>
+          <select onchange="assignImage(${i}, this.value)"
+            style="margin-top:4px;width:100%;background:var(--surface3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:5px 8px;outline:none">
+            <option value="">— sin asignar —</option>
+            ${options}
+          </select>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function assignImage(elIndex, filename) {
+  if (filename) imageAssignments[elIndex] = filename;
+  else delete imageAssignments[elIndex];
+  renderImageAssignments();
 }
 
 </script>
