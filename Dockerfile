@@ -10,3 +10,4 @@ RUN mkdir -p /app/uploads /app/output
 
 CMD ["python", "-m", "flask", "--app", "server", "run", \
      "--host=0.0.0.0", "--port=5000"]
+ARG CACHEBUST=2
