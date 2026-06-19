@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>idml2banner</title>
+<style>
+:root {
+  --bg: #0f0f12; --surface: #1a1a20; --surface2: #22222a; --surface3: #2a2a34;
+  --border: #2e2e38; --border2: #3e3e4e;
+  --accent: #7c6af7; --accent2: #a594f9; --accent-dim: rgba(124,106,247,0.15);
+  --text: #e8e6f0; --muted: #7a7890; --muted2: #9996b0;
+  --success: #4ade80; --error: #f87171; --warning: #fbbf24;
+  --red: #ff1c1e; --white: #ffffff;
+  --radius: 10px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;font-size:15px}
+body{min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:40px 20px}
+
+header{text-align:center;margin-bottom:36px}
+header h1{font-size:26px;font-weight:600;letter-spacing:-0.5px}
+header h1 span{color:var(--accent2)}
+header p{color:var(--muted);margin-top:6px;font-size:13px}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px;width:100%;max-width:900px;margin-bottom:16px}
+.card-title{font-size:13px;font-weight:500;color:var(--muted2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:18px}
+
+/* Step indicators */
+.steps{display:flex;gap:8px;margin-bottom:28px;width:100%;max-width:900px}
+.step{flex:1;padding:10px;border-radius:8px;text-align:center;font-size:12px;font-weight:500;border:1px solid var(--border);color:var(--muted);transition:all .2s}
+.step.active{border-color:var(--accent);color:var(--accent2);background:var(--accent-dim)}
+.step.done{border-color:#3a3a4a;color:var(--muted2)}
+
+/* Upload */
+#dropzone{border:1.5px dashed var(--border);border-radius:var(--radius);padding:36px 20px;text-align:center;cursor:pointer;transition:all .2s;position:relative}
+#dropzone:hover,#dropzone.drag-over{border-color:var(--accent);background:var(--accent-dim)}
+#dropzone input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+#dropzone .icon{font-size:28px;margin-bottom:10px}
+#dropzone p{color:var(--muted);font-size:13px}
+#file-name{margin-top:10px;font-size:12px;color:var(--accent2);display:none}
+
+.btn{padding:11px 20px;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;transition:all .15s;border:none}
+.btn-primary{background:var(--accent);color:#fff;width:100%}
+.btn-primary:hover{opacity:.88}
+.btn-primary:disabled{opacity:.35;cursor:not-allowed}
+.btn-secondary{background:transparent;border:1px solid var(--border);color:var(--muted2)}
+.btn-secondary:hover{border-color:var(--accent);color:var(--text)}
+
+/* Layout editor */
+#editor-layout{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:700px){#editor-layout{grid-template-columns:1fr}}
+
+/* Preview canvas */
+#preview-wrap{position:relative;background:var(--surface2);border:1px solid var(--border);border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:200px}
+#preview-canvas{position:relative;transform-origin:top left}
+.preview-el{position:absolute;cursor:pointer;border:1.5px solid transparent;transition:border-color .15s,box-shadow .15s;border-radius:2px}
+.preview-el:hover{border-color:var(--accent)!important;box-shadow:0 0 0 2px var(--accent-dim);z-index:999}
+.preview-el.selected{border-color:var(--accent)!important;box-shadow:0 0 0 3px var(--accent-dim);z-index:1000}
+
+/* Element list */
+#el-list{display:flex;flex-direction:column;gap:6px;max-height:360px;overflow-y:auto;padding-right:4px}
+#el-list::-webkit-scrollbar{width:4px}
+#el-list::-webkit-scrollbar-track{background:transparent}
+#el-list::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+.el-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);cursor:pointer;transition:all .15s}
+.el-item:hover{border-color:var(--border2)}
+.el-item.selected{border-color:var(--accent);background:var(--accent-dim)}
+.el-color{width:12px;height:12px;border-radius:2px;flex-shrink:0;border:1px solid rgba(255,255,255,.15)}
+.el-info{flex:1;min-width:0}
+.el-name{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.el-meta{font-size:11px;color:var(--muted)}
+.el-rule-badge{font-size:10px;padding:2px 7px;border-radius:10px;background:var(--surface3);color:var(--muted2);white-space:nowrap;flex-shrink:0}
+.el-rule-badge.set{background:var(--accent-dim);color:var(--accent2)}
+
+/* Rule panel */
+#rule-panel{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:16px;min-height:100px}
+#rule-panel.empty{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px}
+.rule-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;margin-top:14px;display:block}
+.rule-label:first-child{margin-top:0}
+.rule-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.rule-btn{padding:8px 10px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid var(--border);background:var(--surface3);color:var(--muted2);text-align:center;transition:all .15s}
+.rule-btn:hover{border-color:var(--border2);color:var(--text)}
+.rule-btn.active{border-color:var(--accent);background:var(--accent-dim);color:var(--accent2)}
+.rule-name-input{width:100%;background:var(--surface3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;padding:8px 10px;outline:none;transition:border-color .2s}
+.rule-name-input:focus{border-color:var(--accent)}
+
+/* Sizes */
+.sizes-grid{display:flex;flex-wrap:wrap;gap:8px}
+.size-pill{padding:6px 12px;border-radius:20px;font-size:12px;border:1px solid var(--border);cursor:pointer;transition:all .15s;background:var(--surface2);color:var(--muted);user-select:none}
+.size-pill.active{background:var(--accent-dim);border-color:var(--accent);color:var(--accent2)}
+
+/* Progress */
+.dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.dot.queued{background:var(--warning)}.dot.started{background:var(--accent);animation:pulse 1s infinite}.dot.finished{background:var(--success)}.dot.failed{background:var(--error)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+.download-item{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);margin-bottom:8px}
+.download-item a{font-size:12px;padding:5px 12px;border-radius:6px;background:var(--accent-dim);color:var(--accent2);text-decoration:none;border:1px solid var(--accent)}
+
+.hidden{display:none!important}
+.error-msg{padding:10px 14px;border-radius:8px;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);color:var(--error);font-size:13px;margin-top:10px;display:none}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>idml<span>2banner</span></h1>
+  <p>IDML → HTML5 IAB · con control de layout por elemento</p>
+</header>
+
+<div class="steps" id="steps">
+  <div class="step active" id="step1">1 · Subir IDML</div>
+  <div class="step" id="step2">2 · Definir reglas</div>
+  <div class="step" id="step3">3 · Elegir tamaños</div>
+  <div class="step" id="step4">4 · Generar</div>
+</div>
+
+<!-- STEP 1: Upload -->
+<div class="card" id="s1">
+  <div class="card-title">Archivo master</div>
+  <div id="dropzone">
+    <input type="file" id="file-input" accept=".idml">
+    <div class="icon">📐</div>
+    <p><strong>Arrastra tu .idml aquí</strong> o haz clic para seleccionarlo</p>
+    <div id="file-name"></div>
+  </div>
+  <div class="error-msg" id="upload-error"></div>
+  <br>
+  <button class="btn btn-primary" id="upload-btn" disabled>Subir y analizar →</button>
+</div>
+
+<!-- STEP 2: Editor de reglas -->
+<div class="card hidden" id="s2">
+  <div class="card-title">Reglas de layout por elemento</div>
+  <div id="editor-layout">
+    <!-- Preview -->
+    <div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Preview · haz clic en un elemento</div>
+      <div id="preview-wrap">
+        <div id="preview-canvas"></div>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px;text-align:center" id="canvas-info"></div>
+    </div>
+    <!-- Lista + panel -->
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div id="el-list"></div>
+      <div id="rule-panel" class="empty">← Selecciona un elemento</div>
+    </div>
+  </div>
+  <br>
+  <div style="display:flex;gap:10px">
+    <button class="btn btn-secondary" onclick="goStep(1)">← Atrás</button>
+    <button class="btn btn-primary" id="rules-next-btn" style="flex:1">Continuar →</button>
+  </div>
+</div>
+
+<!-- STEP 3: Tamaños IAB -->
+<div class="card hidden" id="s3">
+  <div class="card-title">Formatos IAB a generar</div>
+  <div class="sizes-grid" id="sizes-grid">
+    <div class="size-pill active" data-size="300x250">300×250 <span style="color:var(--muted)">Med. Rect.</span></div>
+    <div class="size-pill active" data-size="728x90">728×90 <span style="color:var(--muted)">Leaderboard</span></div>
+    <div class="size-pill" data-size="320x50">320×50 <span style="color:var(--muted)">Mobile</span></div>
+    <div class="size-pill" data-size="160x600">160×600 <span style="color:var(--muted)">Skyscraper</span></div>
+    <div class="size-pill" data-size="300x600">300×600 <span style="color:var(--muted)">Half Page</span></div>
+    <div class="size-pill" data-size="970x250">970×250 <span style="color:var(--muted)">Billboard</span></div>
+  </div>
+  <br>
+  <div style="margin-bottom:16px">
+    <span style="font-size:12px;color:var(--muted);display:block;margin-bottom:8px">URL de destino (click-through)</span>
+    <input type="text" id="click-url" placeholder="https://tudominio.com/landing" value="%%CLICK_URL_UNESC%%" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:9px 12px;outline:none">
+  </div>
+  <div style="display:flex;gap:10px">
+    <button class="btn btn-secondary" onclick="goStep(2)">← Atrás</button>
+    <button class="btn btn-primary" id="generate-btn" style="flex:1">Generar banners →</button>
+  </div>
+</div>
+
+<!-- STEP 4: Progreso + descargas -->
+<div class="card hidden" id="s4">
+  <div class="card-title">Resultado</div>
+  <div style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);margin-bottom:12px">
+    <div class="dot queued" id="status-dot"></div>
+    <div style="flex:1">
+      <div style="font-size:14px" id="status-label">Encolando...</div>
+      <div style="font-size:12px;color:var(--muted)" id="status-sub"></div>
+    </div>
+  </div>
+  <div id="downloads" class="hidden">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">Banners listos</div>
+    <div id="download-list"></div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:12px" onclick="reset()">Convertir otro archivo</button>
+  </div>
+</div>
+
+<script>
+// ── State ────────────────────────────────────────────────
+let layoutData = null;    // parsed JSON from server
+let elementRules = {};    // { elIndex: { name, anchor, scale, visible } }
+let selectedEl = null;
+let pollInterval = null;
+
+const ANCHOR_OPTIONS = [
+  { value: 'stretch',      label: 'Stretch' },
+  { value: 'top-left',     label: 'Arr. izq.' },
+  { value: 'top-right',    label: 'Arr. der.' },
+  { value: 'top-center',   label: 'Arr. centro' },
+  { value: 'bottom-left',  label: 'Ab. izq.' },
+  { value: 'bottom-right', label: 'Ab. der.' },
+  { value: 'bottom-center',label: 'Ab. centro' },
+  { value: 'center',       label: 'Centro' },
+];
+
+const SCALE_OPTIONS = [
+  { value: 'proportional', label: 'Proporcional' },
+  { value: 'fixed',        label: 'Tamaño fijo' },
+  { value: 'hidden',       label: 'Ocultar' },
+];
+
+const IAB_NAMES = {'300x250':'Medium Rectangle','728x90':'Leaderboard','320x50':'Mobile Banner','160x600':'Wide Skyscraper','300x600':'Half Page','970x250':'Billboard'};
+
+// ── Step navigation ───────────────────────────────────────
+function goStep(n) {
+  [1,2,3,4].forEach(i => {
+    document.getElementById('s'+i).classList.toggle('hidden', i !== n);
+    const s = document.getElementById('step'+i);
+    s.classList.remove('active','done');
+    if (i === n) s.classList.add('active');
+    else if (i < n) s.classList.add('done');
+  });
+}
+
+// ── Upload ────────────────────────────────────────────────
+const fileInput = document.getElementById('file-input');
+const dropzone  = document.getElementById('dropzone');
+
+fileInput.addEventListener('change', () => fileInput.files[0] && showFile(fileInput.files[0]));
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault(); dropzone.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f?.name.endsWith('.idml')) showFile(f);
+  else showUploadError('Solo se aceptan archivos .idml');
+});
+
+function showFile(f) {
+  document.getElementById('file-name').textContent = '📎 ' + f.name;
+  document.getElementById('file-name').style.display = 'block';
+  document.getElementById('upload-btn').disabled = false;
+  document.getElementById('upload-btn').textContent = 'Subir y analizar →';
+}
+
+document.getElementById('upload-btn').addEventListener('click', async () => {
+  const file = fileInput.files[0];
+  if (!file) return;
+  document.getElementById('upload-btn').disabled = true;
+  document.getElementById('upload-btn').textContent = 'Analizando...';
+  hideUploadError();
+
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('analyze_only', 'true');
+
+  try {
+    const res = await fetch('/analyze', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al analizar');
+    layoutData = data.layout;
+    initEditor();
+    goStep(2);
+  } catch(e) {
+    showUploadError(e.message);
+    document.getElementById('upload-btn').disabled = false;
+    document.getElementById('upload-btn').textContent = 'Subir y analizar →';
+  }
+});
+
+// ── Editor ────────────────────────────────────────────────
+function initEditor() {
+  const { canvas, elements } = layoutData;
+  const W = canvas.width, H = canvas.height;
+
+  // Scale preview to fit ~320px wide
+  const maxW = 300, maxH = 320;
+  const scale = Math.min(maxW / W, maxH / H, 1);
+  const pw = Math.round(W * scale), ph = Math.round(H * scale);
+
+  const wrap = document.getElementById('preview-wrap');
+  wrap.style.height = (ph + 24) + 'px';
+
+  const pc = document.getElementById('preview-canvas');
+  pc.style.width  = W + 'px';
+  pc.style.height = H + 'px';
+  pc.style.transform = `scale(${scale})`;
+  pc.innerHTML = '';
+
+  document.getElementById('canvas-info').textContent = `${W}×${H}px · ${elements.length} elementos`;
+
+  // Default rules
+  elements.forEach((el, i) => {
+    if (!elementRules[i]) {
+      elementRules[i] = {
+        name: autoName(el, i),
+        anchor: el.type === 'rectangle' && el.width >= W * 0.9 ? 'stretch' : 'top-left',
+        scale: el.type === 'rectangle' && el.width >= W * 0.9 ? 'proportional' : 'proportional',
+        visible: true,
+      };
+    }
+    // Preview element
+    const div = document.createElement('div');
+    div.className = 'preview-el';
+    div.dataset.idx = i;
+    div.style.left   = el.x + 'px';
+    div.style.top    = el.y + 'px';
+    div.style.width  = el.width + 'px';
+    div.style.height = el.height + 'px';
+    if (el.backgroundColor) div.style.background = el.backgroundColor;
+    if (el.type === 'text' && el.paragraphs?.length) {
+      div.style.overflow = 'hidden';
+      div.style.fontSize = '8px';
+      div.style.color = el.paragraphs[0]?.runs?.[0]?.color || '#fff';
+      div.textContent = el.paragraphs[0]?.runs?.[0]?.text || '';
+    }
+    div.addEventListener('mouseenter', () => highlightEl(i));
+    div.addEventListener('mouseleave', () => unhighlightEl(i));
+    div.addEventListener('click', () => selectEl(i));
+    pc.appendChild(div);
+  });
+
+  renderList();
+}
+
+function autoName(el, i) {
+  if (el.type === 'text' && el.paragraphs?.length) {
+    const t = el.paragraphs[0]?.runs?.[0]?.text || '';
+    return 'Texto: ' + t.substring(0, 22);
+  }
+  if (el.type === 'image') return 'Imagen';
+  const { width: w, height: h, backgroundColor: bg } = el;
+  const { width: W, height: H } = layoutData.canvas;
+  if (el.type === 'rectangle' && w >= W * 0.85 && h >= H * 0.85) return 'Fondo';
+  if (el.type === 'rectangle' && w > 80) return `Rect ${w.toFixed(0)}×${h.toFixed(0)}`;
+  if (el.type === 'polygon') return `Icono/Logo #${i}`;
+  return `${el.type} #${i}`;
+}
+
+function renderList() {
+  const list = document.getElementById('el-list');
+  list.innerHTML = '';
+  layoutData.elements.forEach((el, i) => {
+    const rule = elementRules[i];
+    const item = document.createElement('div');
+    item.className = 'el-item' + (selectedEl === i ? ' selected' : '');
+    item.dataset.idx = i;
+
+    const ruleSet = rule.anchor !== 'top-left' || rule.scale !== 'proportional';
+    item.innerHTML = `
+      <div class="el-color" style="background:${el.backgroundColor || '#555'}"></div>
+      <div class="el-info">
+        <div class="el-name">${rule.name}</div>
+        <div class="el-meta">${el.type} · ${el.width.toFixed(0)}×${el.height.toFixed(0)}px</div>
+      </div>
+      <div class="el-rule-badge ${ruleSet ? 'set' : ''}">${rule.anchor}</div>
+    `;
+    item.addEventListener('mouseenter', () => highlightEl(i));
+    item.addEventListener('mouseleave', () => unhighlightEl(i));
+    item.addEventListener('click', () => selectEl(i));
+    list.appendChild(item);
+  });
+}
+
+function highlightEl(i) {
+  const divs = document.querySelectorAll('.preview-el');
+  if (divs[i]) divs[i].style.borderColor = 'rgba(165,148,249,0.6)';
+  const items = document.querySelectorAll('.el-item');
+  if (items[i]) items[i].style.borderColor = 'var(--border2)';
+}
+
+function unhighlightEl(i) {
+  if (selectedEl === i) return;
+  const divs = document.querySelectorAll('.preview-el');
+  if (divs[i]) divs[i].style.borderColor = 'transparent';
+  const items = document.querySelectorAll('.el-item');
+  if (items[i]) items[i].style.borderColor = '';
+}
+
+function selectEl(i) {
+  // Deselect previous
+  if (selectedEl !== null) {
+    document.querySelectorAll('.preview-el')[selectedEl]?.classList.remove('selected');
+    document.querySelectorAll('.el-item')[selectedEl]?.classList.remove('selected');
+  }
+  selectedEl = i;
+  document.querySelectorAll('.preview-el')[i]?.classList.add('selected');
+  document.querySelectorAll('.el-item')[i]?.classList.add('selected');
+  // Scroll list item into view
+  document.querySelectorAll('.el-item')[i]?.scrollIntoView({ block: 'nearest' });
+  renderRulePanel(i);
+}
+
+function renderRulePanel(i) {
+  const panel = document.getElementById('rule-panel');
+  panel.classList.remove('empty');
+  const rule = elementRules[i];
+  const el = layoutData.elements[i];
+
+  panel.innerHTML = `
+    <span class="rule-label">Nombre</span>
+    <input class="rule-name-input" id="rp-name" value="${rule.name}" placeholder="Nombre del elemento">
+
+    <span class="rule-label">Comportamiento al cambiar tamaño</span>
+    <div class="rule-grid" id="rp-scale">
+      ${SCALE_OPTIONS.map(o => `
+        <div class="rule-btn ${rule.scale === o.value ? 'active' : ''}" data-val="${o.value}" onclick="setRule(${i},'scale','${o.value}')">${o.label}</div>
+      `).join('')}
+    </div>
+
+    <span class="rule-label" id="rp-anchor-label" style="${rule.scale === 'hidden' ? 'display:none' : ''}">Anclaje</span>
+    <div class="rule-grid" id="rp-anchor" style="${rule.scale === 'hidden' ? 'display:none' : ''}">
+      ${ANCHOR_OPTIONS.map(o => `
+        <div class="rule-btn ${rule.anchor === o.value ? 'active' : ''}" data-val="${o.value}" onclick="setRule(${i},'anchor','${o.value}')">${o.label}</div>
+      `).join('')}
+    </div>
+  `;
+
+  document.getElementById('rp-name').addEventListener('input', e => {
+    elementRules[i].name = e.target.value;
+    renderList();
+  });
+}
+
+function setRule(i, key, value) {
+  elementRules[i][key] = value;
+  if (key === 'scale') {
+    const hide = value === 'hidden';
+    document.getElementById('rp-anchor-label').style.display = hide ? 'none' : '';
+    document.getElementById('rp-anchor').style.display = hide ? 'none' : '';
+  }
+  // Update active buttons
+  document.querySelectorAll(`#rp-${key} .rule-btn`).forEach(b => {
+    b.classList.toggle('active', b.dataset.val === value);
+  });
+  renderList();
+}
+
+document.getElementById('rules-next-btn').addEventListener('click', () => goStep(3));
+
+// ── Sizes ────────────────────────────────────────────────
+document.querySelectorAll('.size-pill').forEach(p => {
+  p.addEventListener('click', () => p.classList.toggle('active'));
+});
+
+// ── Generate ─────────────────────────────────────────────
+document.getElementById('generate-btn').addEventListener('click', async () => {
+  const sizes = [...document.querySelectorAll('.size-pill.active')].map(p => p.dataset.size);
+  if (!sizes.length) return alert('Selecciona al menos un tamaño');
+
+  const clickUrl = document.getElementById('click-url').value || '%%CLICK_URL_UNESC%%';
+
+  // Attach rules to layout
+  const enrichedLayout = JSON.parse(JSON.stringify(layoutData));
+  enrichedLayout.elements.forEach((el, i) => {
+    el.ruleName   = elementRules[i]?.name || '';
+    el.anchor     = elementRules[i]?.anchor || 'top-left';
+    el.scaleMode  = elementRules[i]?.scale || 'proportional';
+  });
+
+  goStep(4);
+
+  try {
+    const res = await fetch('/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        layout: enrichedLayout,
+        sizes: sizes.join(','),
+        click_url: clickUrl,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error');
+    pollJob(data.job_id);
+  } catch(e) {
+    document.getElementById('status-label').textContent = 'Error: ' + e.message;
+    document.getElementById('status-dot').className = 'dot failed';
+  }
+});
+
+function pollJob(jobId) {
+  updateStatus({ status: 'queued' });
+  pollInterval = setInterval(async () => {
+    try {
+      const res = await fetch('/status/' + jobId);
+      const data = await res.json();
+      updateStatus(data);
+      if (data.status === 'finished' || data.status === 'failed') clearInterval(pollInterval);
+    } catch(e) {}
+  }, 1500);
+}
+
+function updateStatus(data) {
+  const dot = document.getElementById('status-dot');
+  const labels = {
+    queued:   ['En cola...', 'Esperando worker'],
+    started:  ['Generando banners...', 'Aplicando reglas de layout'],
+    finished: ['¡Listo!', 'Todos los banners generados'],
+    failed:   ['Error', data.error || ''],
+  };
+  dot.className = 'dot ' + data.status;
+  const [l, s] = labels[data.status] || ['Procesando...', ''];
+  document.getElementById('status-label').textContent = l;
+  document.getElementById('status-sub').textContent = s;
+
+  if (data.status === 'finished' && data.files?.length) {
+    const dl = document.getElementById('downloads');
+    const list = document.getElementById('download-list');
+    list.innerHTML = '';
+    data.files.forEach(filename => {
+      const size = filename.replace('banner_','').replace('.zip','');
+      list.innerHTML += `
+        <div class="download-item">
+          <span><strong>${size}</strong> &nbsp;<span style="color:var(--muted)">${IAB_NAMES[size]||''}</span></span>
+          <a href="/download/${filename}" download="${filename}">Descargar .zip</a>
+        </div>`;
+    });
+    dl.classList.remove('hidden');
+  }
+}
+
+function reset() {
+  clearInterval(pollInterval);
+  layoutData = null; elementRules = {}; selectedEl = null;
+  fileInput.value = '';
+  document.getElementById('file-name').style.display = 'none';
+  document.getElementById('upload-btn').disabled = true;
+  document.getElementById('upload-btn').textContent = 'Subir y analizar →';
+  document.getElementById('preview-canvas').innerHTML = '';
+  document.getElementById('el-list').innerHTML = '';
+  document.getElementById('downloads').classList.add('hidden');
+  goStep(1);
+}
+
+function showUploadError(msg) {
+  const el = document.getElementById('upload-error');
+  el.textContent = msg; el.style.display = 'block';
+}
+function hideUploadError() {
+  document.getElementById('upload-error').style.display = 'none';
+}
+</script>
+</body>
+</html>
