@@ -87,16 +87,21 @@ def render_element_css(el: dict) -> str:
     return "; ".join(styles)
 
 
-def render_text_element(el: dict, idx: int) -> str:
+def render_text_element(el: dict, idx: int, available_fonts: set = None) -> str:
     """Render a text frame element with all paragraphs and runs."""
     css = render_element_css(el)
     inner_html = []
+    available_fonts = available_fonts or set()
 
     for para in el.get("paragraphs", []):
         para_parts = []
         for run in para.get("runs", []):
             font_family = run.get("fontFamily", "")
-            font_stack = f'"{font_family}", Arial, sans-serif' if font_family else "Arial, sans-serif"
+            # Only use custom font if it was uploaded, otherwise Arial
+            if font_family and font_family in available_fonts:
+                font_stack = f'"{font_family}", Arial, sans-serif'
+            else:
+                font_stack = "Arial, sans-serif"
             span_styles = [f"font-size: {run['size']}px", f"font-family: {font_stack}"]
             if run.get("color"):
                 span_styles.append(f"color: {run['color']}")
@@ -159,10 +164,11 @@ def build_html(layout: dict, click_url: str = "%%CLICK_URL_UNESC%%", fonts: list
     size_name = IAB_SIZES.get((w, h), f"{w}x{h}")
 
     elements_html = []
+    available_fonts = {f.get("family", "") for f in (fonts or [])}
     for idx, el in enumerate(layout.get("elements", [])):
         etype = el.get("type", "rectangle")
         if etype == "text":
-            elements_html.append(render_text_element(el, idx))
+            elements_html.append(render_text_element(el, idx, available_fonts))
         elif etype == "image":
             elements_html.append(render_image_element(el, idx))
         else:
