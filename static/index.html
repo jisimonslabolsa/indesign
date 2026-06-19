@@ -273,7 +273,10 @@ function goStep(n) {
 const fileInput = document.getElementById('file-input');
 const dropzone  = document.getElementById('dropzone');
 
-fileInput.addEventListener('change', () => fileInput.files[0] && showFile(fileInput.files[0]));
+fileInput.addEventListener('change', () => {
+  const f = fileInput.files[0];
+  if (f && f.name.endsWith('.idml')) showFile(f);
+});
 dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
 dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
 dropzone.addEventListener('drop', e => {
@@ -597,7 +600,8 @@ let uploadedFonts = []; // [{name, filename, family}]
 const fontInput = document.getElementById('font-input');
 const fontDrop  = document.getElementById('font-drop');
 
-fontInput.addEventListener('change', () => {
+fontInput.addEventListener('change', e => {
+  e.stopPropagation();
   [...fontInput.files].forEach(uploadFont);
 });
 fontDrop.addEventListener('dragover', e => { e.preventDefault(); fontDrop.style.borderColor='var(--accent)'; });
@@ -660,10 +664,12 @@ let imageAssignments = {}; // { elIndex: filename }
 const imgInput = document.getElementById('img-input');
 const imgUploadArea = document.getElementById('img-upload-area');
 
-imgInput.addEventListener('change', () => {
+imgInput.addEventListener('change', e => {
+  e.stopPropagation();
   [...imgInput.files].forEach(uploadImage);
 });
-imgUploadArea.addEventListener('dragover', e => { e.preventDefault(); imgUploadArea.style.borderColor='var(--accent)'; });
+imgUploadArea.addEventListener('click', e => e.stopPropagation());
+imgUploadArea.addEventListener('dragover', e => { e.preventDefault(); e.stopPropagation(); imgUploadArea.style.borderColor='var(--accent)'; });
 imgUploadArea.addEventListener('dragleave', () => { imgUploadArea.style.borderColor=''; });
 imgUploadArea.addEventListener('drop', e => {
   e.preventDefault(); imgUploadArea.style.borderColor='';
