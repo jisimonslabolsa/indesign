@@ -103,7 +103,7 @@ class IDMLParser:
     def _parse_styles(self):
         try:
             xml = self.zf.read("Resources/Styles.xml")
-            root = etree.fromstring(xml)
+            root = etree.fromstring(xml, etree.XMLParser(huge_tree=True))
             for color in root.iter("Color"):
                 self_id = color.get("Self", "")
                 cv = color.get("ColorValue", "")
@@ -121,7 +121,7 @@ class IDMLParser:
         # Also parse Graphic.xml for additional swatches
         try:
             xml = self.zf.read("Resources/Graphic.xml")
-            root = etree.fromstring(xml)
+            root = etree.fromstring(xml, etree.XMLParser(huge_tree=True))
             for color in root.iter("Color"):
                 self_id = color.get("Self", "")
                 cv = color.get("ColorValue", "")
@@ -141,7 +141,7 @@ class IDMLParser:
             if name.startswith("Stories/") and name.endswith(".xml"):
                 try:
                     xml = self.zf.read(name)
-                    root = etree.fromstring(xml)
+                    root = etree.fromstring(xml, etree.XMLParser(huge_tree=True))
                     for story in root.iter("Story"):
                         self_id = story.get("Self", "")
                         paragraphs = []
@@ -176,7 +176,7 @@ class IDMLParser:
         for name in spread_files[:1]:
             try:
                 xml = self.zf.read(name)
-                root = etree.fromstring(xml)
+                root = etree.fromstring(xml, etree.XMLParser(huge_tree=True))
                 for spread in root.iter("Spread"):
                     for page in spread.iter("Page"):
                         bounds_str = page.get("GeometricBounds", "")
