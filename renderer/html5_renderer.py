@@ -150,6 +150,28 @@ def render_image_element(el: dict, idx: int) -> str:
         )
 
 
+
+def render_svg_group(el: dict, idx: int) -> str:
+    """Render a vector group as inline SVG."""
+    x = el['x']
+    y = el['y']
+    w = el['width']
+    h = el['height']
+    z = el.get('zIndex', 0)
+    opacity = el.get('opacity', 1)
+    vb = el.get('viewBox', f'0 0 {w} {h}')
+    paths = '\n    '.join(el.get('paths', []))
+    op_style = f'; opacity:{opacity}' if opacity < 1 else ''
+    return (
+        f'<div id="el{idx}" style="position:absolute;left:{x}px;top:{y}px;'
+        f'width:{w}px;height:{h}px;z-index:{z}{op_style}">\n'
+        f'  <svg xmlns="http://www.w3.org/2000/svg" viewBox="{vb}" '
+        f'width="100%" height="100%" preserveAspectRatio="xMidYMid meet">\n'
+        f'    {paths}\n'
+        f'  </svg>\n'
+        f'</div>'
+    )
+
 def render_shape_element(el: dict, idx: int) -> str:
     """Render a rectangle or other shape element."""
     css = render_element_css(el)
@@ -171,6 +193,8 @@ def build_html(layout: dict, click_url: str = "%%CLICK_URL_UNESC%%", fonts: list
             elements_html.append(render_text_element(el, idx, available_fonts))
         elif etype == "image":
             elements_html.append(render_image_element(el, idx))
+        elif etype == "svg_group":
+            elements_html.append(render_svg_group(el, idx))
         else:
             elements_html.append(render_shape_element(el, idx))
 
