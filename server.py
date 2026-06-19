@@ -7,7 +7,7 @@ from redis import Redis
 from rq import Queue
 from rq.job import Job
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', static_url_path='/static')
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "/app/output")
@@ -160,7 +160,7 @@ def process_banner_from_idml(idml_path, sizes_str, click_url, output_dir):
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    from flask import send_from_directory as sfd; return sfd(os.path.join(app.root_path, "static"), "index.html")
 
 
 @app.route("/health")
