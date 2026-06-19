@@ -13,8 +13,10 @@ UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "/app/output")
 REDIS_URL  = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
+FONTS_DIR = os.environ.get("FONTS_DIR", "/app/fonts")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(FONTS_DIR, exist_ok=True)
 
 redis_conn = Redis.from_url(REDIS_URL)
 q = Queue(connection=redis_conn)
@@ -112,7 +114,7 @@ def apply_anchor_rules(layout, target_w, target_h):
     return scaled
 
 
-def process_banner_from_layout(layout, sizes_str, click_url, output_dir):
+def process_banner_from_layout(layout, sizes_str, click_url, output_dir, fonts=None):
     """Worker task: render banners from enriched layout JSON."""
     sys.path.insert(0, "/app")
     from renderer.html5_renderer import render as html_render, IAB_SIZES
@@ -142,7 +144,7 @@ def process_banner_from_layout(layout, sizes_str, click_url, output_dir):
         with open(scaled_json, "w") as f:
             json.dump(target_layout, f)
 
-        zip_path = html_render(scaled_json, output_dir=output_dir, click_url=click_url)
+        zip_path = html_render(scaled_json, output_dir=output_dir, click_url=click_url, fonts=fonts or [])
         results.append(os.path.basename(zip_path))
 
     return results
@@ -216,6 +218,31 @@ def analyze():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/upload-font", methods=["POST"])
+def upload_font():
+    """Receive a font file, save it, return family name."""
+    if "font" not in request.files:
+        return jsonify({"error": "No font file"}), 400
+    f = request.files["font"]
+    name = f.filename
+    ext = os.path.splitext(name)[1].lower()
+    if ext not in (".ttf", ".otf", ".woff", ".woff2"):
+        return jsonify({"error": "Unsupported font format"}), 400
+
+    # Derive family name from filename (strip extension and style suffixes)
+    import re
+    family = os.path.splitext(name)[0]
+    family = re.sub(r'[-_](bold|italic|regular|light|medium|black|thin|semibold|extrabold|condensed|narrow).*$', '', family, flags=re.IGNORECASE)
+    family = family.replace('-', ' ').replace('_', ' ').strip()
+
+    filename = f"{uuid.uuid4().hex[:8]}_{name}"
+    font_path = os.path.join(FONTS_DIR, filename)
+    f.save(font_path)
+
+    return jsonify({"filename": filename, "family": family, "path": font_path})
+
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
     """Receive enriched layout JSON + sizes, enqueue render job."""
@@ -226,10 +253,11 @@ def upload():
     layout    = data["layout"]
     sizes     = data.get("sizes", "300x250")
     click_url = data.get("click_url", "%%CLICK_URL_UNESC%%")
+    fonts     = data.get("fonts", [])
 
     job = q.enqueue(
         process_banner_from_layout,
-        layout, sizes, click_url, OUTPUT_DIR,
+        layout, sizes, click_url, OUTPUT_DIR, fonts,
         job_timeout=300,
     )
     return jsonify({"job_id": job.id, "status": "queued"}), 202
