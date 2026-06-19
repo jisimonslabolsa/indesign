@@ -200,6 +200,23 @@ class IDMLParser:
                     for child in spread:
                         if callable(child.tag):
                             continue
+                        from lxml.etree import QName as _QName
+                        tag = _QName(child.tag).localname
+                        # Convert pure vector groups to SVG elements
+                        if tag == 'Group':
+                            vgroups = _find_vector_groups(child)
+                            if vgroups:
+                                for vg, _ in vgroups:
+                                    svg_el = group_to_svg_element(vg, self.colors, self.page_tx, self.page_ty)
+                                    if svg_el:
+                                        elements.append(svg_el)
+                                # Also parse non-vector children
+                                for gchild in child:
+                                    if callable(gchild.tag): continue
+                                    if not _find_vector_groups(gchild):
+                                        els = self._parse_element_recursive(gchild)
+                                        elements.extend(els)
+                                continue
                         els = self._parse_element_recursive(child)
                         elements.extend(els)
 
@@ -349,3 +366,121 @@ if __name__ == "__main__":
         if el.get('paragraphs'):
             text = el['paragraphs'][0]['runs'][0]['text'][:30] if el['paragraphs'][0]['runs'] else ''
         print(f"  [{el['type']:10s}] x={el['x']:7.1f} y={el['y']:7.1f} w={el['width']:7.1f} h={el['height']:7.1f}  {bg}  {text}")
+
+
+# ── SVG Group extraction ──────────────────────────────────
+
+def _parse_transform_full(transform_str):
+    """Returns full 6-tuple (a,b,c,d,tx,ty)."""
+    try:
+        p = [float(x) for x in transform_str.strip().split()]
+        if len(p) == 6:
+            return (p[0],p[1],p[2],p[3],p[4],p[5])
+    except Exception:
+        pass
+    return (1,0,0,1,0,0)
+
+def _compose_transform(t1, t2):
+    """Compose two affine transforms: apply t1 first, then t2."""
+    a1,b1,c1,d1,tx1,ty1 = t1
+    a2,b2,c2,d2,tx2,ty2 = t2
+    return (
+        a2*a1 + c2*b1, b2*a1 + d2*b1,
+        a2*c1 + c2*d1, b2*c1 + d2*d1,
+        a2*tx1 + c2*ty1 + tx2,
+        b2*tx1 + d2*ty1 + ty2,
+    )
+
+def _apply_t(pts, t):
+    a,b,c,d,tx,ty = t
+    return [(a*x+c*y+tx, b*x+d*y+ty) for x,y in pts]
+
+def _has_text_or_image(node):
+    for c in node.iter():
+        if callable(c.tag): continue
+        from lxml.etree import QName
+        if QName(c.tag).localname in ('TextFrame','Image'): return True
+    return False
+
+def _get_poly_count(node):
+    from lxml.etree import QName
+    return sum(1 for c in node.iter()
+               if not callable(c.tag) and QName(c.tag).localname in ('Polygon','Rectangle'))
+
+def _extract_shapes(node, cumulative_t, colors):
+    """Recursively extract polygon/rect shapes with fully composed transforms."""
+    from lxml.etree import QName
+    shapes = []
+    local_t = _parse_transform_full(node.get('ItemTransform','1 0 0 1 0 0'))
+    total_t = _compose_transform(local_t, cumulative_t)
+    tag = QName(node.tag).localname
+
+    if tag in ('Polygon','Rectangle'):
+        fill_ref = node.get('FillColor','')
+        fill = '#ffffff' if fill_ref == 'Color/Paper' else colors.get(fill_ref, '#000000')
+        pts = []
+        for p in node.iter('PathPointType'):
+            a = p.get('Anchor','')
+            if a:
+                try:
+                    x,y = float(a.split()[0]), float(a.split()[1])
+                    pts.append((x,y))
+                except ValueError:
+                    pass
+        if len(pts) >= 2:
+            shapes.append({'pts': _apply_t(pts, total_t), 'fill': fill})
+    else:
+        for child in node:
+            if not callable(child.tag):
+                shapes.extend(_extract_shapes(child, total_t, colors))
+    return shapes
+
+def _find_vector_groups(node, depth=0):
+    """Find groups containing only vector shapes."""
+    from lxml.etree import QName
+    if callable(node.tag): return []
+    tag = QName(node.tag).localname
+    results = []
+    if tag == 'Group':
+        if not _has_text_or_image(node) and _get_poly_count(node) > 2:
+            results.append((node, depth))
+            return results
+        for child in node:
+            results.extend(_find_vector_groups(child, depth+1))
+    return results
+
+def group_to_svg_element(group_node, colors, page_tx, page_ty):
+    """Convert a vector Group to an svg_group layout element."""
+    parent_t = (1,0,0,1,0,0)
+    shapes = _extract_shapes(group_node, parent_t, colors)
+    if not shapes: return None
+
+    # Convert spread coords → page coords
+    shapes_page = [{'pts': [(x-page_tx, y-page_ty) for x,y in s['pts']],
+                    'fill': s['fill']} for s in shapes]
+
+    all_pts = [p for s in shapes_page for p in s['pts']]
+    xs = [p[0] for p in all_pts]
+    ys = [p[1] for p in all_pts]
+    min_x, min_y = min(xs), min(ys)
+    vw = round(max(xs) - min_x, 2)
+    vh = round(max(ys) - min_y, 2)
+
+    paths = []
+    for s in shapes_page:
+        pts_norm = [(x-min_x, y-min_y) for x,y in s['pts']]
+        d = 'M ' + ' L '.join(f'{x:.2f},{y:.2f}' for x,y in pts_norm) + ' Z'
+        paths.append(f'<path d="{d}" fill="{s["fill"]}"/>')
+
+    return {
+        'type': 'svg_group',
+        'self': group_node.get('Self',''),
+        'x': round(min_x, 2),
+        'y': round(min_y, 2),
+        'width': vw,
+        'height': vh,
+        'zIndex': 0,
+        'opacity': 1.0,
+        'viewBox': f'0 0 {vw} {vh}',
+        'paths': paths,
+    }
