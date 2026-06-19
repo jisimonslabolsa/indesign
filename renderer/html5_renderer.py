@@ -1,4 +1,360 @@
 """
+JSON Layout -> HTML5 Banner Renderer
+Generates production-ready HTML5 banner zips from a layout JSON.
+Compatible with DV360, Xandr, Adform, and other IAB-compliant ad servers.
+"""
+
+import json
+import os
+import zipfile
+import shutil
+from pathlib import Path
+
+IAB_SIZES = {
+    (300, 250): "Medium Rectangle",
+    (728, 90):  "Leaderboard",
+    (160, 600): "Wide Skyscraper",
+    (300, 600): "Half Page",
+    (320, 50):  "Mobile Banner",
+    (970, 250): "Billboard",
+    (300, 50):  "Mobile Banner Small",
+    (320, 100): "Large Mobile Banner",
+}
+
+
+def build_font_css(fonts):
+    if not fonts:
+        return ""
+    lines = []
+    for f in fonts:
+        family = f.get("family", "")
+        fname  = f.get("filename", "")
+        if not family or not fname:
+            continue
+        ext = os.path.splitext(fname)[1].lower().lstrip(".")
+        fmt_map = {"woff2": "woff2", "woff": "woff", "ttf": "truetype", "otf": "opentype"}
+        fmt = fmt_map.get(ext, "truetype")
+        lines.append(
+            f'    @font-face {{\n'
+            f'      font-family: "{family}";\n'
+            f'      src: url("fonts/{fname}") format("{fmt}");\n'
+            f'      font-weight: normal;\n'
+            f'      font-style: normal;\n'
+            f'    }}'
+        )
+    return "\n".join(lines)
+
+
+def render_element_css(el):
+    styles = [
+        f"position: absolute",
+        f"left: {el['x']}px",
+        f"top: {el['y']}px",
+        f"width: {el['width']}px",
+        f"height: {el['height']}px",
+        f"z-index: {el['zIndex']}",
+    ]
+    if el.get("opacity", 1) < 1:
+        styles.append(f"opacity: {el['opacity']}")
+    if "backgroundColor" in el:
+        styles.append(f"background-color: {el['backgroundColor']}")
+    if "borderColor" in el and "borderWidth" in el:
+        styles.append(f"border: {el['borderWidth']}px solid {el['borderColor']}")
+    if "borderRadius" in el:
+        styles.append(f"border-radius: {el['borderRadius']}px")
+    return "; ".join(styles)
+
+
+def render_text_element(el, idx, available_fonts=None):
+    css = render_element_css(el)
+    inner_html = []
+    available_fonts = available_fonts or set()
+
+    for para in el.get("paragraphs", []):
+        para_parts = []
+        for run in para.get("runs", []):
+            font_family = run.get("fontFamily", "")
+            if font_family and font_family in available_fonts:
+                font_stack = f'"{font_family}", Arial, sans-serif'
+            else:
+                font_stack = "Arial, sans-serif"
+            span_styles = [
+                f"font-size: {run['size']}px",
+                f"font-family: {font_stack}",
+            ]
+            if run.get("color"):
+                span_styles.append(f"color: {run['color']}")
+            if run.get("bold"):
+                span_styles.append("font-weight: bold")
+            if run.get("italic"):
+                span_styles.append("font-style: italic")
+            style_str = "; ".join(span_styles)
+            text = run["text"].replace("&", "&amp;").replace("<", "&lt;")
+            para_parts.append(f'<span style="{style_str}">{text}</span>')
+        inner_html.append(
+            f'<p style="margin:0;padding:0;line-height:1.2">{"".join(para_parts)}</p>'
+        )
+    return f'<div id="el{idx}" style="{css}; overflow:hidden">{"".join(inner_html)}</div>'
+
+
+def render_image_element(el, idx, image_assignments=None):
+    css = render_element_css(el)
+    assigned = (image_assignments or {}).get(str(idx), "")
+    src_val  = el.get("src", "")
+    filename = assigned or (os.path.basename(src_val) if src_val else "")
+    img_src  = f"assets/{filename}" if filename else ""
+
+    placeholder_style = (
+        f"width:{el['width']}px;height:{el['height']}px;"
+        f"background:{el.get('backgroundColor','#cccccc')};"
+        f"display:flex;align-items:center;justify-content:center;"
+        f"color:#fff;font-size:11px;font-family:sans-serif;"
+    )
+
+    if img_src:
+        return (
+            f'<div id="el{idx}" style="{css}">'
+            f'<img src="{img_src}" style="width:100%;height:100%;object-fit:cover" '
+            f'onerror="this.parentNode.innerHTML=\'<div style=&quot;{placeholder_style}&quot;>IMG</div>\'">'
+            f'</div>'
+        )
+    else:
+        return (
+            f'<div id="el{idx}" style="{css};{placeholder_style}">'
+            f'<span>IMAGE</span>'
+            f'</div>'
+        )
+
+
+def render_svg_group(el, idx):
+    x  = el['x']
+    y  = el['y']
+    w  = el['width']
+    h  = el['height']
+    z  = el.get('zIndex', 0)
+    op = el.get('opacity', 1)
+    vb = el.get('viewBox', f'0 0 {w} {h}')
+    paths = "\n    ".join(el.get('paths', []))
+    op_style = f'; opacity:{op}' if op < 1 else ''
+    return (
+        f'<div id="el{idx}" style="position:absolute;left:{x}px;top:{y}px;'
+        f'width:{w}px;height:{h}px;z-index:{z}{op_style}">\n'
+        f'  <svg xmlns="http://www.w3.org/2000/svg" viewBox="{vb}" '
+        f'width="100%" height="100%" preserveAspectRatio="xMidYMid meet">\n'
+        f'    {paths}\n'
+        f'  </svg>\n'
+        f'</div>'
+    )
+
+
+def render_shape_element(el, idx):
+    css = render_element_css(el)
+    return f'<div id="el{idx}" style="{css}"></div>'
+
+
+def build_html(layout, click_url="%%CLICK_URL_UNESC%%", fonts=None, image_assignments=None):
+    canvas    = layout["canvas"]
+    w         = int(canvas["width"])
+    h         = int(canvas["height"])
+    size_name = IAB_SIZES.get((w, h), f"{w}x{h}")
+    font_css  = build_font_css(fonts or [])
+    available_fonts = {f.get("family", "") for f in (fonts or [])}
+
+    elements_html = []
+    for idx, el in enumerate(layout.get("elements", [])):
+        etype = el.get("type", "rectangle")
+        if etype == "text":
+            elements_html.append(render_text_element(el, idx, available_fonts))
+        elif etype == "image":
+            elements_html.append(render_image_element(el, idx, image_assignments or {}))
+        elif etype == "svg_group":
+            elements_html.append(render_svg_group(el, idx))
+        else:
+            assigned = (image_assignments or {}).get(str(idx))
+            if assigned:
+                elements_html.append(render_image_element({**el, "src": assigned}, idx, image_assignments or {}))
+            else:
+                elements_html.append(render_shape_element(el, idx))
+
+    elements_str = "\n    ".join(elements_html)
+
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="ad.size" content="width={w},height={h}">
+  <title>{size_name} Banner</title>
+  <style>
+    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+    {font_css}
+    html, body {{
+      width: {w}px;
+      height: {h}px;
+      overflow: hidden;
+      font-family: Arial, Helvetica, sans-serif;
+    }}
+    #banner {{
+      position: relative;
+      width: {w}px;
+      height: {h}px;
+      overflow: hidden;
+      cursor: pointer;
+    }}
+    #border {{
+      position: absolute;
+      top: 0; left: 0;
+      width: {w - 1}px;
+      height: {h - 1}px;
+      border: 1px solid rgba(0,0,0,0.15);
+      z-index: 9999;
+      pointer-events: none;
+    }}
+  </style>
+</head>
+<body>
+  <div id="banner" onclick="clickThrough()">
+    {elements_str}
+    <div id="border"></div>
+  </div>
+  <script>
+    var clickTag = "{click_url}";
+    function clickThrough() {{
+      if (clickTag && clickTag !== "" && !clickTag.startsWith("%%")) {{
+        window.open(clickTag, "_blank");
+      }}
+    }}
+    document.addEventListener("DOMContentLoaded", function() {{
+      var banner = document.getElementById("banner");
+      banner.style.opacity = "0";
+      banner.style.transition = "opacity 0.3s ease";
+      setTimeout(function() {{ banner.style.opacity = "1"; }}, 50);
+    }});
+  </script>
+</body>
+</html>"""
+
+
+def build_manifest(layout):
+    canvas = layout["canvas"]
+    return json.dumps({
+        "name": layout.get("source", "banner"),
+        "version": "1.0",
+        "width": int(canvas["width"]),
+        "height": int(canvas["height"]),
+        "main": "index.html",
+    }, indent=2)
+
+
+def render(
+    layout_path,
+    output_dir="output",
+    assets_dir=None,
+    click_url="%%CLICK_URL_UNESC%%",
+    fonts=None,
+    image_assignments=None,
+):
+    with open(layout_path, encoding="utf-8") as f:
+        layout = json.load(f)
+
+    canvas = layout["canvas"]
+    w, h   = int(canvas["width"]), int(canvas["height"])
+    banner_name = f"banner_{w}x{h}"
+    banner_dir  = os.path.join(output_dir, banner_name)
+
+    if os.path.exists(banner_dir):
+        shutil.rmtree(banner_dir)
+    os.makedirs(os.path.join(banner_dir, "assets"), exist_ok=True)
+
+    # Write index.html
+    html = build_html(layout, click_url, fonts=fonts or [], image_assignments=image_assignments or {})
+    with open(os.path.join(banner_dir, "index.html"), "w", encoding="utf-8") as f:
+        f.write(html)
+
+    # Write manifest
+    with open(os.path.join(banner_dir, "manifest.json"), "w") as f:
+        f.write(build_manifest(layout))
+
+    # Copy assigned images
+    images_dir_src = os.environ.get("IMAGES_DIR", "/app/images")
+    if image_assignments:
+        for idx_str, fname in image_assignments.items():
+            src_path = os.path.join(images_dir_src, fname)
+            if os.path.exists(src_path):
+                shutil.copy(src_path, os.path.join(banner_dir, "assets", fname))
+
+    # Copy external assets
+    if assets_dir and os.path.isdir(assets_dir):
+        for el in layout.get("elements", []):
+            if el.get("type") == "image" and el.get("src"):
+                filename = os.path.basename(el["src"])
+                src_path = os.path.join(assets_dir, filename)
+                if os.path.exists(src_path):
+                    shutil.copy(src_path, os.path.join(banner_dir, "assets", filename))
+
+    # Copy fonts
+    fonts_dir_src = os.environ.get("FONTS_DIR", "/app/fonts")
+    if fonts:
+        os.makedirs(os.path.join(banner_dir, "fonts"), exist_ok=True)
+        for font in fonts:
+            fname = font.get("filename", "")
+            if fname:
+                src_path = os.path.join(fonts_dir_src, fname)
+                if os.path.exists(src_path):
+                    shutil.copy(src_path, os.path.join(banner_dir, "fonts", fname))
+
+    # Generate fallback.jpg
+    _generate_fallback(banner_dir, w, h, layout)
+
+    # Package as zip
+    zip_path = os.path.join(output_dir, f"{banner_name}.zip")
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for root, _, files in os.walk(banner_dir):
+            for fname in files:
+                fpath   = os.path.join(root, fname)
+                arcname = os.path.relpath(fpath, banner_dir)
+                zf.write(fpath, arcname)
+
+    size_name = IAB_SIZES.get((w, h), f"{w}x{h}")
+    print(f"Banner generated -> {zip_path}  [{size_name}]")
+    return zip_path
+
+
+def _generate_fallback(banner_dir, w, h, layout):
+    try:
+        from PIL import Image, ImageDraw
+        bg_color = "#1a1a4a"
+        for el in layout.get("elements", []):
+            if el.get("type") == "rectangle" and "backgroundColor" in el:
+                bg_color = el["backgroundColor"]
+                break
+        bg_color = bg_color.lstrip("#")
+        rgb = tuple(int(bg_color[i:i+2], 16) for i in (0, 2, 4))
+        img  = Image.new("RGB", (w, h), rgb)
+        draw = ImageDraw.Draw(img)
+        for el in layout.get("elements", []):
+            if el.get("type") == "text":
+                for para in el.get("paragraphs", []):
+                    for run in para.get("runs", []):
+                        text = run.get("text", "")
+                        color_hex = run.get("color", "#ffffff").lstrip("#")
+                        color = tuple(int(color_hex[i:i+2], 16) for i in (0, 2, 4))
+                        x = max(0, int(el["x"]))
+                        y = max(0, int(el["y"]))
+                        try:
+                            draw.text((x, y), text, fill=color)
+                        except Exception:
+                            pass
+        img.save(os.path.join(banner_dir, "fallback.jpg"), "JPEG", quality=85)
+    except Exception as e:
+        print(f"  [warn] fallback: {e}")
+        Path(os.path.join(banner_dir, "fallback.jpg")).touch()
+
+
+if __name__ == "__main__":
+    import sys
+    layout_path = sys.argv[1] if len(sys.argv) > 1 else "output/layout.json"
+    output_dir  = sys.argv[2] if len(sys.argv) > 2 else "output"
+    render(layout_path, output_dir)"""
 JSON Layout → HTML5 Banner Renderer
 
 Generates a production-ready HTML5 banner zip from a layout JSON.
