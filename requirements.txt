@@ -1,0 +1,6 @@
+flask>=3.0
+redis>=5.0
+rq>=1.16
+simpleidml>=0.9
+lxml>=4.9
+Pillow>=10.0
