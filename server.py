@@ -64,6 +64,12 @@ def process_banner(idml_path, sizes, click_url):
     return results
 
 
+@app.route("/")
+def index():
+    from flask import render_template
+    return render_template("index.html")
+
+
 @app.route("/health")
 def health():
     return jsonify({"status": "ok"})
