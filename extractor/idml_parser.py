@@ -13,6 +13,8 @@ import zipfile
 import json
 import re
 import os
+import base64
+from io import BytesIO
 from lxml import etree
 from pathlib import Path
 
@@ -23,6 +25,37 @@ NS = {
 
 def pt_to_px(pt):
     return round(float(pt), 2)
+
+
+def extract_embedded_images(elements, output_dir):
+    """Extrae imágenes embebidas del layout y las guarda en output_dir."""
+    os.makedirs(output_dir, exist_ok=True)
+    for el in elements:
+        if el.get("_embedded_data"):
+            raw = base64.b64decode(el["_embedded_data"])
+            src_name = el["src"]
+            out_path = os.path.join(output_dir, src_name)
+            
+            fmt = el.get("_original_format", "")
+            if "Photoshop" in fmt:
+                # PSD → PNG con psd-tools
+                from psd_tools import PSDImage
+                psd = PSDImage.open(BytesIO(raw))
+                composite = psd.composite()
+                composite.save(out_path)
+            else:
+                # Intentar abrir directamente con Pillow
+                from PIL import Image
+                img = Image.open(BytesIO(raw))
+                img.save(out_path)
+            
+            # Limpiar datos del JSON
+            del el["_embedded_data"]
+            if "_original_format" in el:
+                del el["_original_format"]
+            
+            print(f"  Extracted: {src_name} ({len(raw)} bytes)")
+
 
 
 def parse_color_value(color_value_str, space="RGB"):
@@ -331,22 +364,56 @@ class IDMLParser:
                 el["paragraphs"] = self.stories[story_ref]
 
         # Image
-        if tag == "Rectangle":
-            for image in node.iter("Image"):
-                href = image.get("{http://www.w3.org/1999/xlink}href", "")
-                if href:
-                    el["type"] = "image"
-                    el["src"] = href
-                    break
+        #if tag == "Rectangle":
+        #    for image in node.iter("Image"):
+        #        href = image.get("{http://www.w3.org/1999/xlink}href", "")
+        #        if href:
+        #            el["type"] = "image"
+        #            el["src"] = href
+        #            break
 
-        return el
+        #return el
+
+        # Reemplazar el bloque actual (líneas 334-340):
+if tag == "Rectangle":
+    for image in node.iter("Image"):
+        # Caso 1: enlace externo (xlink:href)
+        href = image.get("{http://www.w3.org/1999/xlink}href", "")
+        if href:
+            el["type"] = "image"
+            el["src"] = href
+            break
+        
+        # Caso 2: imagen embebida (Contents base64)
+        link = image.find("Link")
+        stored = link.get("StoredState", "") if link is not None else ""
+        if stored == "Embedded":
+            props = image.find("Properties")
+            contents = props.find("Contents") if props is not None else None
+            if contents is not None and contents.text and len(contents.text) > 100:
+                # Extraer nombre original del link
+                uri = link.get("LinkResourceURI", "")
+                original_name = uri.split("/")[-1] if uri else image.get("Self", "img")
+                # Cambiar extensión a .png
+                base_name = os.path.splitext(original_name)[0] + ".png"
+                
+                el["type"] = "image"
+                el["src"] = base_name
+                el["_embedded_data"] = contents.text  # base64 raw
+                el["_original_format"] = link.get("LinkResourceFormat", "")
+                break
 
 
-def extract(idml_path: str, output_path: str = None) -> dict:
+
+def extract(idml_path, output_path=None):
     parser = IDMLParser(idml_path)
     layout = parser.parse()
+    
+    # Extraer imágenes embebidas al directorio de assets
     if output_path:
-        os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
+        assets_dir = os.path.join(os.path.dirname(output_path) or ".", "assets")
+        extract_embedded_images(layout["elements"], assets_dir)
+        os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)1
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(layout, f, indent=2, ensure_ascii=False)
         print(f"Layout saved → {output_path}")
