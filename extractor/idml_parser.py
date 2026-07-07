@@ -375,35 +375,34 @@ class IDMLParser:
         #return el
 
         # Reemplazar el bloque actual (líneas 334-340):
-if tag == "Rectangle":
-    for image in node.iter("Image"):
-        # Caso 1: enlace externo (xlink:href)
-        href = image.get("{http://www.w3.org/1999/xlink}href", "")
-        if href:
-            el["type"] = "image"
-            el["src"] = href
-            break
-        
-        # Caso 2: imagen embebida (Contents base64)
-        link = image.find("Link")
-        stored = link.get("StoredState", "") if link is not None else ""
-        if stored == "Embedded":
-            props = image.find("Properties")
-            contents = props.find("Contents") if props is not None else None
-            if contents is not None and contents.text and len(contents.text) > 100:
-                # Extraer nombre original del link
-                uri = link.get("LinkResourceURI", "")
-                original_name = uri.split("/")[-1] if uri else image.get("Self", "img")
-                # Cambiar extensión a .png
-                base_name = os.path.splitext(original_name)[0] + ".png"
+        # Image — enlace externo o embebida
+        if tag == "Rectangle":
+            for image in node.iter("Image"):
+                # Caso 1: enlace externo (xlink:href)
+                href = image.get("{http://www.w3.org/1999/xlink}href", "")
+                if href:
+                    el["type"] = "image"
+                    el["src"] = href
+                    break
                 
-                el["type"] = "image"
-                el["src"] = base_name
-                el["_embedded_data"] = contents.text  # base64 raw
-                el["_original_format"] = link.get("LinkResourceFormat", "")
-                break
+                # Caso 2: imagen embebida (Contents base64)
+                link = image.find("Link")
+                stored = link.get("StoredState", "") if link is not None else ""
+                if stored == "Embedded":
+                    props = image.find("Properties")
+                    contents = props.find("Contents") if props is not None else None
+                    if contents is not None and contents.text and len(contents.text) > 100:
+                        uri = link.get("LinkResourceURI", "")
+                        original_name = uri.split("/")[-1] if uri else image.get("Self", "img")
+                        base_name = os.path.splitext(original_name)[0] + ".png"
+                        
+                        el["type"] = "image"
+                        el["src"] = base_name
+                        el["_embedded_data"] = contents.text
+                        el["_original_format"] = link.get("LinkResourceFormat", "")
+                        break
 
-
+        return el
 
 def extract(idml_path, output_path=None):
     parser = IDMLParser(idml_path)
