@@ -4,3 +4,4 @@ rq>=1.16
 simpleidml>=0.9
 lxml>=4.9
 Pillow>=10.0
+psd-tools
