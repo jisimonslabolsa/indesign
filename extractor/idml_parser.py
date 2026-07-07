@@ -213,7 +213,7 @@ class IDMLParser:
         # Only parse first spread (first page of master)
         spread_files = sorted([n for n in self.zf.namelist()
                                 if n.startswith("Spreads/") and n.endswith(".xml")])
-        for name in spread_files[:1]:
+        for name in spread_files:
             try:
                 xml = self.zf.read(name)
                 root = etree.fromstring(xml, etree.XMLParser(huge_tree=True))
