@@ -413,7 +413,7 @@ def extract(idml_path, output_path=None):
     if output_path:
         assets_dir = os.path.join(os.path.dirname(output_path) or ".", "assets")
         extract_embedded_images(layout["elements"], assets_dir)
-        os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)1
+        os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else ".", exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(layout, f, indent=2, ensure_ascii=False)
         print(f"Layout saved → {output_path}")
